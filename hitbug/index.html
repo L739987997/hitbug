@@ -22,6 +22,12 @@
         .info-item { display:flex; flex-direction:row; align-items:baseline; gap:3px; }
         .info-label { font-size:11px; color:#c8a882; text-transform:uppercase; letter-spacing:1px; font-weight:600; }
         .info-value { font-size:16px; font-weight:900; color:#ffd7a0; text-shadow:0 0 8px rgba(255,150,50,0.5); }
+        #menu-btn {
+            width:36px; height:30px; padding:0; border:1px solid rgba(255,215,160,0.45); border-radius:8px;
+            background:rgba(255,255,255,0.1); color:#ffd7a0; font-size:21px; line-height:1; font-weight:900;
+            cursor:pointer; touch-action:manipulation;
+        }
+        #menu-btn:disabled { opacity:0.35; cursor:default; }
         .timer-warning { color:#ff4444 !important; animation:timerPulse 0.5s ease-in-out infinite; }
         @keyframes timerPulse { 0%,100%{transform:scale(1);} 50%{transform:scale(1.2);} }
         #combo-display {
@@ -47,14 +53,16 @@
         }
         #overlay-title { font-size:24px; font-weight:900; color:#5c3a1e; margin-bottom:5px; }
         #overlay-subtitle { font-size:12px; color:#6b4e3a; margin-bottom:14px; line-height:1.4; }
-        #overlay-btn {
+        #overlay-actions { display:flex; justify-content:center; flex-wrap:wrap; gap:9px; }
+        #overlay-btn, #overlay-secondary-btn {
             display:inline-block; padding:9px 28px; font-size:15px; font-weight:700; color:#fff;
             background:linear-gradient(135deg, #b84720, #8b2a1a); border:none; border-radius:50px;
             cursor:pointer; letter-spacing:2px; box-shadow:0 6px 20px rgba(180,70,30,0.5);
             transition:all 0.2s; pointer-events:all; touch-action:manipulation;
         }
-        #overlay-btn:active { transform:scale(0.93); }
-        #overlay-btn.restart-btn { background:linear-gradient(135deg, #d4912a, #b8701a); }
+        #overlay-btn:active, #overlay-secondary-btn:active { transform:scale(0.93); }
+        #overlay-btn.restart-btn, #overlay-secondary-btn { background:linear-gradient(135deg, #d4912a, #b8701a); }
+        #overlay-secondary-btn[hidden] { display:none !important; }
     </style>
 </head>
 <body>
@@ -63,6 +71,7 @@
         <div class="info-item"><span class="info-label">🏆</span><span class="info-value" id="level-display">1/30</span></div>
         <div class="info-item"><span class="info-label">⭐</span><span class="info-value" id="score-display">0</span></div>
         <div class="info-item"><span class="info-label">⏱</span><span class="info-value" id="timer-display">25</span></div>
+        <button id="menu-btn" type="button" aria-label="游戏菜单" disabled>☰</button>
     </div>
     <canvas id="game-canvas"></canvas>
     <div id="combo-display"></div>
@@ -70,7 +79,10 @@
         <div id="overlay-content">
             <div id="overlay-title">拍蟑螂</div>
             <div id="overlay-subtitle">在限时的时间内消灭这些蟑螂。</div>
-            <button id="overlay-btn">开 始 游 戏</button>
+            <div id="overlay-actions">
+                <button id="overlay-btn">开 始 游 戏</button>
+                <button id="overlay-secondary-btn" hidden>重新开始</button>
+            </div>
         </div>
     </div>
 </div>
@@ -82,9 +94,11 @@
         const overlayTitle = document.getElementById('overlay-title');
         const overlaySubtitle = document.getElementById('overlay-subtitle');
         let overlayBtn = document.getElementById('overlay-btn');
+        let overlaySecondaryBtn = document.getElementById('overlay-secondary-btn');
         const levelDisplay = document.getElementById('level-display');
         const scoreDisplay = document.getElementById('score-display');
         const timerDisplay = document.getElementById('timer-display');
+        const menuBtn = document.getElementById('menu-btn');
         const comboDisplay = document.getElementById('combo-display');
         const cockroachSprite = new Image();
         const slipperSprite = new Image();
@@ -146,6 +160,8 @@
         }
 
         const TOTAL_LEVELS = 30;
+        const SAVE_KEY = 'hitbug-paused-game-v1';
+        const FIXED_ROACH_SIZE = 42;
         let currentLevel = 1, score = 0, timeLeft = 25;
         let totalCockroachesInLevel = 8, cockroachesRemaining = 8;
         let gameState = 'idle';
@@ -167,7 +183,7 @@
             const timeLimit = Math.round(25 - progress * 10);
             const dirChangeMin = Math.round(2160 - progress * 1910);
             const dirChangeMax = dirChangeMin + 400;
-            const roachSize = 43.5 - progress * 23.5;
+            const roachSize = FIXED_ROACH_SIZE;
             return {
                 cockroachCount, baseSpeed, timeLimit,
                 dirChangeMin, dirChangeMax, roachSize,
@@ -333,11 +349,12 @@
 
         // 拖鞋拍击动画 (从上往下)
         class FallingSlipper {
-            constructor(x, y, size, angle) {
-                this.targetX = x; this.targetY = y; this.size = size * 2.5;
+            constructor(x, y, angle, didHit) {
+                this.targetX = x; this.targetY = y; this.size = 66;
                 this.angle = angle;
-                this.duration = 390; this.elapsed = 0;
-                this.scale = 2.4; this.opacity = 0.2;
+                this.didHit = didHit;
+                this.duration = 360; this.elapsed = 0;
+                this.scale = 1.65; this.opacity = 0.25;
                 this._triggered = false;
             }
             update(dt) {
@@ -345,14 +362,19 @@
                 const t = Math.min(1, this.elapsed / this.duration);
                 if (t < 0.38) {
                     const p = t / 0.38;
-                    this.scale = 2.4 - 1.35 * p * p;
-                    this.opacity = Math.min(1, p * 2.5);
-                } else if (t < 0.67) {
-                    this.scale = 1.05;
+                    this.scale = 1.65 - 0.7 * p * p;
+                    this.opacity = Math.min(1, 0.25 + p * 1.5);
+                } else if (t < 0.52) {
+                    const p = (t - 0.38) / 0.14;
+                    this.scale = 0.95 + p * 0.09;
+                    this.opacity = 1;
+                } else if (t < 0.7) {
+                    const p = (t - 0.52) / 0.18;
+                    this.scale = 1.04 - p * 0.04;
                     this.opacity = 1;
                 } else {
-                    const p = (t - 0.67) / 0.33;
-                    this.scale = 1.05 + p * 0.15;
+                    const p = (t - 0.7) / 0.3;
+                    this.scale = 1 + p * 0.16;
                     this.opacity = 1 - p;
                 }
             }
@@ -372,7 +394,7 @@
                 ctx.restore();
             }
             get finished() { return this.elapsed >= this.duration; }
-            get justHit() { return this.elapsed > this.duration*0.36 && this.elapsed < this.duration*0.42 && !this._triggered; }
+            get justHit() { return this.elapsed > this.duration*0.37 && this.elapsed < this.duration*0.43 && !this._triggered; }
             set triggered(v) { this._triggered = v; }
         }
 
@@ -456,62 +478,157 @@
             scoreDisplay.textContent = score;
             timerDisplay.textContent = timeLeft;
             timerDisplay.classList.toggle('timer-warning', timeLeft <= 5);
+            menuBtn.disabled = gameState !== 'playing';
+        }
+
+        function stopTimer() {
+            if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
+        }
+
+        function startTimer() {
+            stopTimer();
+            timerInterval = setInterval(()=>{
+                if(gameState!=='playing') return;
+                timeLeft--; updateUI();
+                if(timeLeft<=0) endLevel(false);
+            }, 1000);
+        }
+
+        function clearSavedGame() {
+            try { localStorage.removeItem(SAVE_KEY); } catch (e) {}
+        }
+
+        function savePausedGame() {
+            if(gameState!=='playing' && gameState!=='paused') return;
+            const savedCockroaches = cockroaches.filter(r=>r.alive).map(r=>({
+                ...r,
+                nx:(r.x-gameAreaLeft)/Math.max(1,gameAreaWidth),
+                ny:(r.y-gameAreaTop)/Math.max(1,gameAreaHeight)
+            }));
+            try {
+                localStorage.setItem(SAVE_KEY, JSON.stringify({
+                    currentLevel, score, timeLeft,
+                    totalCockroachesInLevel,
+                    cockroachesRemaining:savedCockroaches.length,
+                    cockroaches:savedCockroaches
+                }));
+            } catch (e) {}
+        }
+
+        function pauseGame(autoPaused=false) {
+            if(gameState!=='playing') return;
+            gameState='paused';
+            stopTimer();
+            fallingSlippers=[]; particles=[]; screenShake=0;
+            savePausedGame(); updateUI();
+            showOverlay(
+                '游戏已暂停',
+                autoPaused ? '离开页面时已自动暂停。' : '请选择继续游戏或重新开始。',
+                '继续游戏','',resumeGame,
+                '重新开始',restartGame
+            );
+        }
+
+        function resumeGame() {
+            if(gameState!=='paused') return;
+            initAudio();
+            gameState='playing';
+            overlay.classList.remove('active'); overlay.style.display='none';
+            lastTime=performance.now();
+            startTimer(); updateUI();
+        }
+
+        function restoreSavedGame() {
+            let saved=null;
+            try { saved=JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) {}
+            if(!saved || !Array.isArray(saved.cockroaches) || saved.cockroaches.length===0) return false;
+            currentLevel=Math.max(1,Math.min(TOTAL_LEVELS,saved.currentLevel||1));
+            score=Math.max(0,saved.score||0);
+            timeLeft=Math.max(1,saved.timeLeft||getLevelConfig(currentLevel).timeLimit);
+            totalCockroachesInLevel=saved.totalCockroachesInLevel||saved.cockroaches.length;
+            cockroaches=saved.cockroaches.map(data=>{
+                const roach=Object.assign(Object.create(Cockroach.prototype),data);
+                roach.x=gameAreaLeft+Math.max(0,Math.min(1,data.nx??0.5))*gameAreaWidth;
+                roach.y=gameAreaTop+Math.max(0,Math.min(1,data.ny??0.5))*gameAreaHeight;
+                roach.size=FIXED_ROACH_SIZE;
+                roach.alive=true;
+                return roach;
+            });
+            cockroachesRemaining=cockroaches.length;
+            deadCockroaches=[]; fallingSlippers=[]; particles=[]; screenShake=0;
+            gameState='paused'; updateUI();
+            showOverlay('游戏已暂停','已恢复上次保存的进度。','继续游戏','',resumeGame,'重新开始',restartGame);
+            return true;
         }
 
         function startLevel(level) {
             currentLevel=level; const config=getLevelConfig(level);
             timeLeft=config.timeLimit;
             deadCockroaches=[]; fallingSlippers=[]; particles=[]; screenShake=0; comboCount=0;
-            resizeCanvas(); spawnCockroaches(config); updateUI();
             gameState='playing'; overlay.classList.remove('active'); overlay.style.display='none';
-            if(timerInterval) clearInterval(timerInterval);
-            timerInterval = setInterval(()=>{
-                if(gameState!=='playing') return;
-                timeLeft--; updateUI();
-                if(timeLeft<=0) endLevel(false);
-            }, 1000);
+            resizeCanvas(); spawnCockroaches(config); updateUI();
+            clearSavedGame(); startTimer();
             lastTime=performance.now();
             if(!animationId) animationId=requestAnimationFrame(gameLoop);
         }
 
         function endLevel(success) {
             gameState=success?'levelClear':'gameOver';
-            if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
+            stopTimer(); clearSavedGame(); updateUI();
             if(success){
                 playLevelClearSound();
                 const bonus=timeLeft*15; score+=bonus; updateUI();
                 if(currentLevel>=TOTAL_LEVELS){
-                    showOverlay('🎉 通关30关！',`最终得分：${score}`,'再玩一次','restart-btn', resetGame);
+                    showOverlay('🎉 通关30关！',`最终得分：${score}`,'再玩一次','restart-btn', restartGame);
                 } else {
                     showOverlay('✅ 关卡通过',`时间奖励 +${bonus}`,'下一关','', ()=>startLevel(currentLevel+1));
                 }
             } else {
                 playFailSound();
-                showOverlay('⏰ 时间到！','请在时间结束前消灭所有蟑螂。','重新挑战','restart-btn', ()=>startLevel(currentLevel));
+                showOverlay(
+                    '⏰ 时间到！','请选择再挑战本关或从第一关重新开始。',
+                    '再来一次','',()=>startLevel(currentLevel),
+                    '重新开始',restartGame
+                );
             }
+        }
+
+        function restartGame() {
+            currentLevel=1; score=0; comboCount=0;
+            clearSavedGame(); startLevel(1);
         }
 
         function resetGame() {
             currentLevel=1; score=0; comboCount=0;
             cockroaches=[]; deadCockroaches=[]; fallingSlippers=[]; particles=[]; screenShake=0;
-            if(timerInterval) clearInterval(timerInterval);
+            stopTimer(); clearSavedGame(); gameState='idle';
             updateUI(); showOverlay('拍蟑螂','在限时的时间内消灭这些蟑螂。','开始游戏','', ()=>startLevel(1));
         }
 
-        function showOverlay(title,subtitle,btnText,btnClass,cb){
+        function showOverlay(title,subtitle,btnText,btnClass,cb,secondaryText='',secondaryCb=null){
             overlayTitle.textContent=title; overlaySubtitle.innerHTML=subtitle.replace(/\n/g,'<br>');
             overlayBtn.textContent=btnText; overlayBtn.className=btnClass||'';
+            overlaySecondaryBtn.hidden=!secondaryCb;
+            overlaySecondaryBtn.textContent=secondaryText;
             overlay.classList.add('active'); overlay.style.display='flex';
             const newBtn=overlayBtn.cloneNode(true);
             overlayBtn.parentNode.replaceChild(newBtn,overlayBtn);
             overlayBtn=newBtn;
             newBtn.addEventListener('click',(e)=>{ e.preventDefault(); initAudio(); cb(); });
             newBtn.addEventListener('touchend',(e)=>{ e.preventDefault(); initAudio(); cb(); });
+            const newSecondaryBtn=overlaySecondaryBtn.cloneNode(true);
+            overlaySecondaryBtn.parentNode.replaceChild(newSecondaryBtn,overlaySecondaryBtn);
+            overlaySecondaryBtn=newSecondaryBtn;
+            overlaySecondaryBtn.hidden=!secondaryCb;
+            if(secondaryCb){
+                newSecondaryBtn.addEventListener('click',(e)=>{ e.preventDefault(); initAudio(); secondaryCb(); });
+                newSecondaryBtn.addEventListener('touchend',(e)=>{ e.preventDefault(); initAudio(); secondaryCb(); });
+            }
         }
 
         function spawnImpactParticles(x,y,size){
             const colors=['#4a2c18','#6b3a1f','#3b2412','#2d1a0c'];
-            for(let i=0;i<14;i++) particles.push(new Particle(x,y,colors[Math.floor(Math.random()*colors.length)],2+Math.random()*size*0.13,280+Math.random()*380));
+            for(let i=0;i<6;i++) particles.push(new Particle(x,y,colors[Math.floor(Math.random()*colors.length)],2+Math.random()*size*0.09,220+Math.random()*220));
         }
 
         function showCombo(count){
@@ -531,7 +648,11 @@
             }
             deadCockroaches.forEach(d=>d.life-=dt); deadCockroaches=deadCockroaches.filter(d=>d.life>0);
             fallingSlippers.forEach(s=>{
-                if(s.justHit && !s._triggered){ s._triggered=true; spawnImpactParticles(s.targetX,s.targetY,s.size*0.5); screenShake=Math.max(screenShake,5); }
+                if(s.justHit && !s._triggered){
+                    s._triggered=true;
+                    if(s.didHit) spawnImpactParticles(s.targetX,s.targetY,s.size*0.35);
+                    screenShake=Math.max(screenShake,s.didHit?4:2);
+                }
                 s.update(dt);
             });
             fallingSlippers=fallingSlippers.filter(s=>!s.finished);
@@ -573,9 +694,9 @@
             for(let i=cockroaches.length-1;i>=0;i--) if(cockroaches[i].alive && cockroaches[i].containsPoint(px,py)){ hit=cockroaches[i]; break; }
 
             // 每次点击或触屏都立即显示拍击反馈，命中只影响计分和消灭目标。
-            const slapSize = hit ? hit.size : getLevelConfig(currentLevel).roachSize;
-            const slapAngle = hit ? hit.angle : -Math.PI / 2;
-            fallingSlippers.push(new FallingSlipper(px, py, slapSize, slapAngle));
+            const slapAngle = hit ? hit.angle : Math.random() * Math.PI * 2;
+            fallingSlippers.push(new FallingSlipper(px, py, slapAngle, Boolean(hit)));
+            if(fallingSlippers.length>4) fallingSlippers.shift();
             playSlapSound();
 
             if(hit){
@@ -585,19 +706,30 @@
                 lastKillTime=now; if(comboCount>=3) showCombo(comboCount);
                 score+=100+Math.min(comboCount-1,8)*20;
                 deadCockroaches.push({x:hit.x, y:hit.y, size:hit.size, life:500, maxLife:500});
-                updateUI();
+                savePausedGame(); updateUI();
                 if(cockroachesRemaining<=0){ clearInterval(timerInterval); setTimeout(()=>endLevel(true),350); }
             }
         }
         canvas.addEventListener('pointerdown', handleInteraction, {passive:false});
         canvas.addEventListener('touchmove', (e)=>{ if(gameState==='playing') e.preventDefault(); }, {passive:false});
+        menuBtn.addEventListener('click', ()=>pauseGame(false));
+        document.addEventListener('visibilitychange', ()=>{
+            if(document.hidden && gameState==='playing') pauseGame(true);
+        });
+        window.addEventListener('pagehide', ()=>{
+            if(gameState==='playing') pauseGame(true);
+            else if(gameState==='paused') savePausedGame();
+        });
 
         overlayBtn.addEventListener('click', (e)=>{ e.preventDefault(); initAudio(); startLevel(1); });
         overlayBtn.addEventListener('touchend', (e)=>{ e.preventDefault(); initAudio(); startLevel(1); });
 
-        resizeCanvas(); updateUI();
-        overlay.classList.add('active'); overlay.style.display='flex';
-        gameState='idle'; lastTime=performance.now();
+        resizeCanvas();
+        if(!restoreSavedGame()){
+            gameState='idle'; updateUI();
+            overlay.classList.add('active'); overlay.style.display='flex';
+        }
+        lastTime=performance.now();
         animationId=requestAnimationFrame(gameLoop);
     })();
 </script>
