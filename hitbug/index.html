@@ -162,6 +162,7 @@
         const TOTAL_LEVELS = 30;
         const SAVE_KEY = 'hitbug-paused-game-v1';
         const FIXED_ROACH_SIZE = 42;
+        const SLIPPER_DRAW_SIZE = FIXED_ROACH_SIZE * 2.15;
         let currentLevel = 1, score = 0, timeLeft = 25;
         let totalCockroachesInLevel = 8, cockroachesRemaining = 8;
         let gameState = 'idle';
@@ -350,7 +351,8 @@
         // 拖鞋拍击动画 (从上往下)
         class FallingSlipper {
             constructor(x, y, angle, didHit) {
-                this.targetX = x; this.targetY = y; this.size = 66;
+                // PNG留白与蟑螂腿、触角都计入后，落地可见轮廓约为整只蟑螂的1.5倍。
+                this.targetX = x; this.targetY = y; this.size = SLIPPER_DRAW_SIZE;
                 this.angle = angle;
                 this.didHit = didHit;
                 this.duration = 360; this.elapsed = 0;
